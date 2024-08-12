@@ -24,6 +24,8 @@ MATFILES_DIR = os.path.join(DATA_DIR, 'matfiles')
 MASTER_FILE = os.path.join(DATA_DIR, 'KINARMdataset_SubjectSummary_All Visits_OK_12-20-23.xlsx')
 DEFAULTS = cf.define_defaults()
 
+print("Hello world")
+
 def load_data(master_file):
     print('Starting the process to load data from the excel sheet')
     mdf = pd.read_excel(open(master_file, 'rb'), sheet_name='KINARM_AllVisitsMaster')
