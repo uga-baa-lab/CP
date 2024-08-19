@@ -23,6 +23,7 @@ RESULTS_DIR = os.path.join(BASE_DIR, 'results')
 MATFILES_DIR = os.path.join(DATA_DIR, 'matfiles')
 MASTER_FILE = os.path.join(DATA_DIR, 'KINARMdataset_SubjectSummary_All Visits_OK_12-20-23.xlsx')
 DEFAULTS = cf.define_defaults()
+print('change')
 
 print("Hello world")
 print("Hello World by Santosh")
@@ -32,7 +33,7 @@ def load_data(master_file):
     mdf = pd.read_excel(open(master_file, 'rb'), sheet_name='KINARM_AllVisitsMaster')
     all_df, allTrajs = cf.getDataCP(mdf, MATFILES_DIR, DEFAULTS)
     print('Finished loading the data from the Excel sheet')
-    return all_df, allTrajs
+    return all_df, allTrajs,hello
 
 def plot_single_trajectory(plotsubject, plotday, trajx, all_df, allTrajs):
     subject_df = all_df.loc[(all_df['subject'] == plotsubject) & (all_df['day'] == plotday)]
