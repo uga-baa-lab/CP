@@ -17,13 +17,13 @@ from scipy import stats
 import logging
 
 # Setting up the Path for the required directories
-BASE_DIR = 'M:\\BrainAndAction\\CP\\CP\\CP'
+BASE_DIR = '/Users/barany/OneDrive - University of Georgia/Research/Projects/CP'
 DATA_DIR = os.path.join(BASE_DIR, 'data')
 RESULTS_DIR = os.path.join(BASE_DIR, 'results')
 MATFILES_DIR = os.path.join(DATA_DIR, 'matfiles')
-MASTER_FILE = os.path.join(DATA_DIR, 'KINARMdataset_SubjectSummary_All Visits_OK_12-20-23.xlsx')
+MASTER_FILE = os.path.join(RESULTS_DIR, 'KINARMdataset_SubjectSummary_All Visits_OK_12-20-23.xlsx')
 DEFAULTS = cf.define_defaults()
-print('change')
+print('change gui')
 
 print("Hello world")
 print("Hello World by Santosh")
