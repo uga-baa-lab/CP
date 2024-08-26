@@ -15,25 +15,38 @@ import numpy as np
 from scipy.interpolate import interp1d
 from scipy import stats
 import logging
+import json
+import pickle
+from matplotlib.backends.backend_pdf import PdfPages
+#import matplotlib.pyplot as plt
+import matplotlib as mpl
+#from matplotlib.patches import Circle
+mpl.rcParams.update(mpl.rcParamsDefault)
 
 # Setting up the Path for the required directories
 BASE_DIR = '/Users/barany/OneDrive - University of Georgia/Research/Projects/CP'
-DATA_DIR = os.path.join(BASE_DIR, 'data')
+#DATA_DIR = os.path.join(BASE_DIR, 'data')
 RESULTS_DIR = os.path.join(BASE_DIR, 'results')
-MATFILES_DIR = os.path.join(DATA_DIR, 'matfiles')
+MATFILES_DIR = os.path.join(RESULTS_DIR, 'matfiles')
 MASTER_FILE = os.path.join(RESULTS_DIR, 'KINARMdataset_SubjectSummary_All Visits_OK_12-20-23.xlsx')
 DEFAULTS = cf.define_defaults()
-print('change gui')
+PRELOAD= True #use pre-loaded df if True, otherwise rerun processing pipeline (CHEATCP_fxns)
+filename = 'CP_alldata_v1'
 
-print("Hello world")
-print("Hello World by Santosh")
 
-def load_data(master_file):
+def load_data(master_file,filename):
     print('Starting the process to load data from the excel sheet')
     mdf = pd.read_excel(open(master_file, 'rb'), sheet_name='KINARM_AllVisitsMaster')
     all_df, allTrajs = cf.getDataCP(mdf, MATFILES_DIR, DEFAULTS)
     print('Finished loading the data from the Excel sheet')
-    return all_df, allTrajs,hello
+    print('Saving all_df and allTrajs as ', filename)
+    all_df = all_df.reset_index(drop=True)
+    all_df.to_json(os.path.join(RESULTS_DIR,filename+'.json'))
+    
+    with open(os.path.join(RESULTS_DIR, filename + '_allTrajs.pkl'), 'wb') as f:
+        pickle.dump(allTrajs, f)
+        
+    return all_df, allTrajs
 
 def plot_single_trajectory(plotsubject, plotday, trajx, all_df, allTrajs):
     subject_df = all_df.loc[(all_df['subject'] == plotsubject) & (all_df['day'] == plotday)]
@@ -393,25 +406,142 @@ def plot_subject_comparisons(all_df, varlist):
         
 def plot_by_subject_and_day(all_df, df_means, this_subject, varlist):
     submeans = df_means.loc[df_means['subject'] == this_subject]
-    df_dur = all_df.groupby(['group', 'subject', 'day', 'Condition', 'Affected', 'TP']).mean().reset_index()
+    df_dur = all_df.groupby(['group', 'subject', 'day', 'Condition', 'Affected', 'TP'])[varlist].agg('mean').reset_index()
     submeansdur = df_dur.loc[df_dur['subject'] == this_subject]
 
     for vartotest in varlist:
         # Plotting subject means
         g = sns.FacetGrid(submeans, col="day", legend_out=True)
         g.map(sns.pointplot, 'Condition', vartotest, 'Affected', order=['Reaching', 'Interception'], hue_order=['Less Affected', 'More Affected'], palette=sns.color_palette("muted"))
-        plt.savefig(f'{this_subject}_{vartotest}_by_day_condition.pdf')
+        plt.savefig(os.path.join(f'{this_subject}_{vartotest}_by_day_condition.pdf'))
 
         # Plotting duration means
         g = sns.FacetGrid(submeansdur, col="day", legend_out=True)
         g.map(sns.pointplot, 'TP', vartotest, 'Affected', order=[2, 1, 3, 4, 5, 4, 7, 8], palette=sns.color_palette("muted"))
-        plt.savefig(f'{this_subject}_{vartotest}_by_day_duration.pdf')
+        plt.savefig(os.path.join(RESULTS_DIR,f'{this_subject}_{vartotest}_by_day_duration.pdf'))
 
+
+def plot_trials_as_pdf(all_df,allTrajs,plotsubject,plotday):
+    from matplotlib.patches import Circle
+
+    #list 160 trials 10 at a time
+    trial_list = [list(range(i, i+10)) for i in range(0, 160, 10)]
+    
+    with PdfPages(os.path.join(RESULTS_DIR,'Trajs_'+plotsubject+plotday+'.pdf')) as pdf:
+    
+        #assume 160 trials per subject per day
+        for trajs in trial_list:
+        #trajs= list(range(10,20))
+            firsthalf = trajs[0:5]
+            columns = np.mod(trajs,5)
+            
+            text_columns = ('Accuracy','FeedbackTime','RT','RTalt','CT','MT','velPeak','pathlength','IA_RT','IA_RTalt') #,'CTexclusion')
+            text_rows = ['Trial %d' % x for x in trajs]
+            
+            #subject_df = all_df.loc[(all_df['subject']==plotsubject) & (all_df['day']==plotday)]
+            #cf.plot_singletraj(plotsubject,plotday,trajx,allTrajs,all_df)
+            fig, axs = plt.subplots(nrows=4, ncols=5, gridspec_kw={'height_ratios': [2, 1,2,1]})
+            fig.set_figheight(10)
+            fig.set_figwidth(12)
+            cell_text = []
+            for i,trajx in enumerate(trajs):
+                #get the subject and trajectory information for that trial
+                subject_df = all_df.loc[(all_df['subject']==plotsubject) & (all_df['day']==plotday)]
+                trajinfo = subject_df.iloc[trajx]
+                traj = allTrajs[plotsubject+plotday][trajx]
+                ft = int(trajinfo['FeedbackTime'])
+                
+                #info for text
+                thisrowtext = []
+                for text in text_columns:
+                    if isinstance(trajinfo[text],float):
+                        thisrowtext.append('{:.2f}'.format(float(trajinfo[text])))
+                    else:
+                        thisrowtext.append(str(trajinfo[text]))
+                cell_text.append(thisrowtext)
+                
+                
+                if trajx in firsthalf:
+                    row = 0 
+                else:
+                    row = 2
+                
+                
+                #create two subplots - one with the xy data and one with data over time
+                
+                
+                axs[row,columns[i]].plot(traj['CursorX'][0:ft],traj['CursorY'][0:ft])
+                if ~np.isnan(trajinfo['RT']):
+                    axs[row,columns[i]].plot(traj['CursorX'][int(trajinfo['RT'])],traj['CursorY'][int(trajinfo['RT'])],'bo')
+                if ~np.isnan(trajinfo['RTalt']):
+                    axs[row,columns[i]].plot(traj['CursorX'][int(trajinfo['RTalt'])],traj['CursorY'][int(trajinfo['RTalt'])],'go')
+                if ~np.isnan(trajinfo['CT']):
+                    axs[row,columns[i]].plot(traj['CursorX'][int(trajinfo['CT'])],traj['CursorY'][int(trajinfo['CT'])],'co')
+                circle1 = Circle((traj['xTargetPos'][ft],traj['yTargetPos'][ft]), 10, color='r')
+                circle2 = Circle((traj['CursorX'][ft],traj['CursorY'][ft]), 5, color='m')
+                
+                #add accuracy information to the title
+                axs[row,columns[i]].set_title(str(trajinfo['Accuracy']))
+                
+                axs[row+1,columns[i]].plot(traj['handspeed'][0:ft])
+                if ~np.isnan(trajinfo['RT']):
+                    axs[row+1,columns[i]].plot(trajinfo['RT'],traj['handspeed'][int(trajinfo['RT'])],'bo')
+                if ~np.isnan(trajinfo['RTalt']):
+                    axs[row+1,columns[i]].plot(trajinfo['RTalt'],traj['handspeed'][int(trajinfo['RTalt'])],'go')
+                if ~np.isnan(trajinfo['CT']):
+                    axs[row+1,columns[i]].plot(trajinfo['CT'],traj['handspeed'][int(trajinfo['CT'])],'co')
+                
+                
+                axs[row,columns[i]].add_patch(circle1)
+                axs[row,columns[i]].add_patch(circle2)
+                axs[row,columns[i]].set(xlim=(-200, 200), ylim=(30, 200)) #actual workspace is 150,150 for x, 40, 200 for y
+                axs[row,columns[i]].axis('equal')
+                
+                #add information about the trial
+                texttoadd = 'Sub: '+trajinfo['studyid']+'Day: '+trajinfo['day']+' Cond: '+trajinfo['Affected']+' '+trajinfo['Condition']+' '+str(trajinfo['Duration'])
+                
+                fig.suptitle(texttoadd, fontsize=14) #fontweight='bold')
+                fig.tight_layout(pad=2.0)
+                
+                if trajinfo['Accuracy'] == 1:
+                    correct = 'green'
+                else:
+                    correct = 'red'
+                
+                moretext = 'Trial '+str(trajx)+'\n'+'RT: '+str(trajinfo['RT'])
+                    
+            #plt.figtext(0.99, 0.01, cell_text, horizontalalignment='right') #footnote example
+            pdf.savefig(fig)
+            plt.close()
+            #fig.savefig(os.path.join(results_dir,'test.pdf'))
+            
+            # On page 2, add the trial-by-trial information
+            #next time - make fonts in table bigger, put into multipage pdf
+            
+            fig = plt.figure()
+            fig.set_figheight(10)
+            fig.set_figwidth(12)
+            plt.axis('off')
+            the_table = plt.table(cellText=cell_text,
+                                  rowLabels=text_rows,
+                                  colLabels=text_columns,
+                                  loc='center')
+            the_table.auto_set_font_size(False)
+            the_table.set_fontsize(12)
+            the_table.auto_set_column_width(col=list(range(len(text_columns))))
+            the_table.scale(1, 4)
+            pdf.savefig(fig)
+            plt.close()
 
 
 
 def main():
-    all_df, allTrajs = load_data(MASTER_FILE)
+    if PRELOAD:
+        all_df = pd.read_json(os.path.join(RESULTS_DIR,filename+'.json'))
+        with open(os.path.join(RESULTS_DIR,filename+'_allTrajs.pkl'), 'rb') as f:
+            allTrajs = pickle.load(f)
+    else:
+        all_df, allTrajs = load_data(MASTER_FILE,filename)
     
     plot_single_trajectory('011', 'Day1', 1, all_df, allTrajs)
     print(f'Executed and generated the plot of singel trajectory')
@@ -424,7 +554,14 @@ def main():
     varlist = ['age', 'Accuracy', 'RT', 'MT', 'velPeak', 'pathlength', 'CT', 'xPosError', 'RTalt', 'IA_abs']
 
     all_df = preprocess_data(all_df)
-    df_means, df2_means, df1_means = save_data_to_csv(all_df)
+    df_means, df2_means, df1_means = save_data_to_csv(all_df,varlist)
+    
+    #plot_by_subject_and_day(all_df,df_means,'011',varlist)
+    
+    plotsubject = 'cpvib044' #010 (CP) and 011 (TDC) are about the same age
+    plotday = 'Day1' 
+    plot_trials_as_pdf(all_df,allTrajs,plotsubject,plotday)
+    
     df_means = pd.read_csv(os.path.join(RESULTS_DIR, 'means_bysubject.csv'))
     df_meansdur = pd.read_csv(os.path.join(RESULTS_DIR, 'means_bysubjectandduration.csv'))
     prepare_excel_export(df_means, df_meansdur, RESULTS_DIR)

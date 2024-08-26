@@ -412,6 +412,8 @@ def plot_singletraj(plotsubject,plotday,trajx,allTrajs,all_df):
     ax.add_patch(circle1)
     ax.axis('equal')
     ax.set(xlim=(-150, 150), ylim=(40, 200))
+    
+
 
 """
 # publication plot
