@@ -1,0 +1,9 @@
+cp/*
+res*
+path*
+data*
+.ipy*
+# .gitignore
+.idea
+*.pyc
+*.csv

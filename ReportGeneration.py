@@ -70,7 +70,7 @@ def pivot_data_to_wide(df, index_cols, pivot_cols, varlist):
     return df_wwide
 
 
-def     reindex_with_missing_ids(df_wide, all_ids, is_wide_dur):
+def  reindex_with_missing_ids(df_wide, all_ids, is_wide_dur):
 
     missing = list(set(all_ids) - set(df_wide['subject'].astype(str)))
     if missing:
