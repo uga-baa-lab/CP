@@ -4,15 +4,26 @@ import pandas as pd
 
 
 # Define constants
-RESULTS_DIR = r'C:\Users\LibraryUser\Downloads\Fall2024\BrainAndAction\CP\CP\results_final_run\reports'  # Ensure this directory is defined
+BASE_DIR = r'C:\Users\LibraryUser\Downloads\Fall2024/BrainAndAction\CP\CP'
+
+# RESULTS_DIR = r"C:\Users\LibraryUser\Downloads\Fall2024\BrainAndAction\CP\CP\final_code\results\IE_plots_final_version_v2\IE_plots_window_based\reports"
+RESULTS_DIR = r"C:\Users\LibraryUser\Downloads\Fall2024\BrainAndAction\CP\CP\final_code\results\IE_plots_final_version_v2\IE_plots_without_window\reports"
+
+# data_file_location = r"C:\Users\LibraryUser\Downloads\Fall2024\BrainAndAction\CP\CP\final_code\results\IE_plots_final_version_v2\IE_plots_window_based\all_processed_trials_final.csv"
+data_file_location = r"C:\Users\LibraryUser\Downloads\Fall2024\BrainAndAction\CP\CP\final_code\results\IE_plots_final_version_v2\IE_plots_without_window\all_processed_trials_final.csv"
+
 TOTAL_IDS = 88
 ALL_IDS = ['cpvib' + str(item).zfill(3) for item in range(1, TOTAL_IDS + 1)]
 MAX_DAYS = 5
 VARLIST = ['Accuracy','MT','RT','pathlength','velPeak','EndPointError','IDE','PLR']
+
 # Helper functions
 def calculate_additional_columns(df):
+    df['IA_abs'] = np.abs(df['IA_50RT'])
     df['pathNorm'] = df['pathlength'] / df['straightlength']
     df['xTargetabs'] = np.abs(df['xTargetEnd'])
+    # # df['Normal_IDE'] = np.abs(df['IDE'])
+    # df['IDE'] = np.abs(df['IDE'])
     return df
 
 def save_grouped_data(df, group_cols, filename):
@@ -89,7 +100,7 @@ def combine_mean_columns(df, col1, col2, new_col_name):
 
 def process_and_save_day_data_std(df_stds, df_std_dur, day_num, exceltitle, all_ids):
     current_day = f'Day{day_num}'
-    VARLIST = ['Accuracy', 'MT', 'RT', 'pathlength', 'velPeak', 'EndPointError', 'IDE', 'PLR']
+    VARLIST = ['Accuracy', 'MT', 'RT', 'pathlength', 'velPeak', 'EndPointError', 'IDE', 'PLR', 'IE']
     DURATIONS = [(500, 625), (750, 900)]  # Defined pairs of durations to combine
 
     # Process Day-Wise Wide Format Data for Standard Deviation
@@ -133,7 +144,7 @@ def process_and_save_day_data_std(df_stds, df_std_dur, day_num, exceltitle, all_
 
 def process_and_save_day_data(df_means, df_meansdur, day_num, exceltitle, all_ids):
     current_day = f'Day{day_num}'
-    VARLIST = ['Accuracy', 'MT', 'RT', 'pathlength', 'velPeak', 'EndPointError', 'IDE', 'PLR']
+    VARLIST = ['Accuracy', 'MT', 'RT', 'pathlength', 'velPeak', 'EndPointError', 'IDE', 'PLR', 'IE']
     DURATIONS = [(500, 625), (750, 900)]  
     df_day_means = df_means[df_means['day'] == current_day]
     df_day_wide = pivot_data_to_wide(df_day_means, ['subject', 'visit', 'studyid', 'group', 'day'], ['Condition', 'Affected'], VARLIST)
@@ -183,7 +194,7 @@ def combine_std_columns(df, cols, new_col_name):
 # Main processing
 def main_std():
     # Load and calculate additional columns
-    all_df = pd.read_csv(r"C:\Users\LibraryUser\Downloads\Fall2024\BrainAndAction\CP\CP\results_final_run\all_processed_trials_final.csv")  # Assuming input data is loaded from a CSV
+    all_df = pd.read_csv(data_file_location)
     all_df = calculate_additional_columns(all_df)
 
     df_stds = save_grouped_data_std(all_df, ['group', 'visit', 'studyid', 'subject', 'day', 'Condition', 'Affected'], 'stds_bysubject.csv')
@@ -209,7 +220,7 @@ def main_std():
     save_excel(df_std_dur, exceltitle2, 'AllDays_Master_Formatted_Stds', mode='w')
 
 def main_means():
-    all_df = pd.read_csv(r"C:\Users\LibraryUser\Downloads\Fall2024\BrainAndAction\CP\CP\results_final_run\all_processed_trials_final.csv")  # Assuming input data is loaded from a CSV
+    all_df = pd.read_csv(data_file_location)
     all_df = calculate_additional_columns(all_df)
 
     # Save grouped data to CSV files
@@ -233,11 +244,121 @@ def main_means():
     # Save long format Excel file for all days
     save_excel(df_meansdur, exceltitle2, 'AllDays_Master_Formatted_Means', mode='w')
 
+def process_and_save_day_data_ide(df_means, df_meansdur, day_num, exceltitle, all_ids):
+    current_day = f'Day{day_num}'
+    VARLIST = ['IDE','ABS_IDE']  # Only include 'IDE'
+    DURATIONS = [(500, 625), (750, 900)]  
+
+    # Filter for the current day and pivot the data to wide format
+    df_day_means = df_means[df_means['day'] == current_day]
+    df_day_wide = pivot_data_to_wide(df_day_means, ['subject', 'visit', 'studyid', 'group', 'day'], ['Condition', 'Affected'], VARLIST)
+    df_day_wide = reindex_with_missing_ids(df_day_wide, all_ids, False)
+
+    df_day_meansdur = df_meansdur[df_meansdur['day'] == current_day]
+    df_day_widedur = pivot_data_to_wide(df_day_meansdur, ['subject', 'visit', 'studyid', 'group', 'day'], ['Condition', 'Affected', 'Duration'], VARLIST)
+    df_day_widedur = reindex_with_missing_ids(df_day_widedur, all_ids, True)
+
+    # Combine durations
+    for var in VARLIST:
+        for condition in ['Interception', 'Reaching']:
+            for affected in ['Less Affected', 'More Affected']:
+                for duration_pair in DURATIONS:
+                    col1 = (var, condition, affected, duration_pair[0])
+                    col2 = (var, condition, affected, duration_pair[1])
+                    combined_col_name = (var, condition, affected, f"{duration_pair[0]}_{duration_pair[1]}_combined")
+                    
+                    if col1 in df_day_widedur.columns and col2 in df_day_widedur.columns:
+                        df_day_widedur[combined_col_name] = (df_day_widedur[col1] + df_day_widedur[col2]) / 2
+    
+    # Concatenate the results
+    df_day_combo = pd.concat([df_day_wide, df_day_widedur.drop(columns=['studyid'], errors='ignore')], axis=1, join="inner")
+
+    # Save the results into an Excel file
+    if day_num == 1:
+        save_excel(df_day_combo, exceltitle, f'{current_day}_IDE_Formatted', mode='w')
+    else:
+        save_excel(df_day_combo, exceltitle, f'{current_day}_IDE_Formatted', mode='a')
+
+def process_and_save_day_data_std_ide(df_stds, df_std_dur, day_num, exceltitle, all_ids):
+    current_day = f'Day{day_num}'
+    VARLIST = ['IDE','ABS_IDE']  # Only process 'IDE'
+    DURATIONS = [(500, 625), (750, 900)]  # Defined pairs of durations to combine
+
+    # Process Day-Wise Wide Format Data for Standard Deviation (IDE only)
+    df_day_stds = df_stds[df_stds['day'] == current_day]
+    df_day_wide_std = pivot_data_to_wide(df_day_stds, ['subject', 'visit', 'studyid', 'group', 'day'], ['Condition', 'Affected'], VARLIST)
+    df_day_wide_std = reindex_with_missing_ids(df_day_wide_std, all_ids, False)
+
+    # Process Day-Wise Data by Duration for Standard Deviation (IDE only)
+    df_day_std_dur = df_std_dur[df_std_dur['day'] == current_day]
+    df_day_wide_dur_std = pivot_data_to_wide(df_day_std_dur, ['subject', 'visit', 'studyid', 'group', 'day'], ['Condition', 'Affected', 'Duration'], VARLIST)
+    df_day_wide_dur_std = reindex_with_missing_ids(df_day_wide_dur_std, all_ids, True)
+
+    # Combine standard deviations for specific durations for IDE
+    for var in VARLIST:
+        for condition in ['Interception', 'Reaching']:
+            for affected in ['Less Affected', 'More Affected']:
+                for duration_pair in DURATIONS:
+                    col1 = (var, condition, affected, duration_pair[0])
+                    col2 = (var, condition, affected, duration_pair[1])
+                    combined_col_name = (var, condition, affected, f"{duration_pair[0]}_{duration_pair[1]}_combined_std")
+
+                    # Ensure the columns exist before combining
+                    if col1 in df_day_wide_dur_std.columns and col2 in df_day_wide_dur_std.columns:
+                        df_day_wide_dur_std = combine_std_columns(df_day_wide_dur_std, [col1, col2], combined_col_name)
+
+    # Combine the results and write to Excel
+    df_day_combo = pd.concat([df_day_wide_std, df_day_wide_dur_std.drop(columns=['studyid'], errors='ignore')], axis=1, join="inner")
+
+    if day_num == 1:
+        save_excel(df_day_combo, exceltitle, f'{current_day}_IDE_STD_Formatted', mode='w')
+    else:
+        save_excel(df_day_combo, exceltitle, f'{current_day}_IDE_STD_Formatted', mode='a')
+
+
+def main_std_ide():
+    # Load and calculate additional columns
+    all_df = pd.read_csv(data_file_location)
+    all_df['ABS_IDE'] = all_df['IDE'].abs()
+    all_df = calculate_additional_columns(all_df)
+
+    # Save grouped data (standard deviation) to CSV files, only for 'IDE'
+    df_stds = save_grouped_data_std(all_df, ['group', 'visit', 'studyid', 'subject', 'day', 'Condition', 'Affected'], 'stds_bysubject.csv')
+    df_std_dur = save_grouped_data_std(all_df, ['group', 'visit', 'studyid', 'subject', 'day', 'Condition', 'Affected', 'Duration'], 'stds_bysubjectandduration.csv')
+
+    exceltitle = os.path.join(RESULTS_DIR, 'UL_KINARM_Mastersheet_Only_IDE_STD.xlsx')
+
+    # Process and save standard deviation for IDE for each day
+    for day_num in range(1, MAX_DAYS + 1):
+        process_and_save_day_data_std_ide(df_stds, df_std_dur, day_num, exceltitle, ALL_IDS)
+
+
+def main_means_ide():
+    all_df = pd.read_csv(data_file_location)
+    all_df['ABS_IDE'] = all_df['IDE'].abs()
+    all_df = calculate_additional_columns(all_df)
+    
+
+
+    # Save grouped data to CSV files, keeping only 'IDE'
+    df_means = save_grouped_data(all_df, ['group', 'visit', 'studyid', 'subject', 'day', 'Condition', 'Affected'], 'means_bysubject.csv')
+    df_meansdur = save_grouped_data(all_df, ['group', 'visit', 'studyid', 'subject', 'day', 'Condition', 'Affected', 'Duration'], 'means_bysubjectandduration.csv')
+    
+    exceltitle = os.path.join(RESULTS_DIR, 'UL_KINARM_Mastersheet_Only_IDE_means.xlsx')
+
+    # Process and save the IDE data for each day
+    for day_num in range(1, MAX_DAYS + 1):
+        process_and_save_day_data_ide(df_means, df_meansdur, day_num, exceltitle, ALL_IDS)
+
 def main():
     main_means()
     print("Done successfully for means")
     main_std()
     print("Done Successfully for STDS")
+    main_means_ide()  # Process only IDE values
+    print("IDE Data processed successfully.")
+    main_std_ide()    # Process only IDE standard deviations
+    print("IDE Standard Deviation Data processed successfully.")
 
 if __name__ == "__main__":
     main()

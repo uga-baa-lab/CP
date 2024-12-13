@@ -77,9 +77,10 @@ def getHandTrajectories(thisData,defaults):
     
     return trajData
 
-def getHandKinematics(thisData,defaults):
-    """
+#In this scenario thisData contains all the x,y cordinates, velocity profile for a particular trial.
 
+def getHandKinematics(thisData, defaults):
+    """
     Parameters
     ----------
     thisData : raw hand kinematic data
@@ -87,69 +88,85 @@ def getHandKinematics(thisData,defaults):
 
     Returns
     -------
-    kinData : processed hand kinematic data
-
-    What else to get:
-    Number of velocity peaks --> NOT NOW
-    Path length ratio: total distance / total distance if straight line movement (onset to offset end points)
-
+    kinData : processed hand kinematic data, including:
+        - Reaction Time (RT)
+        - Completion Time (CT)
+        - Peak Velocity (velPeak)
+        - Initial Angles (IA_RT, IA_50RT, etc.)
+        - Initial Movement Direction Error (IDE)
+        - End-Point Error (EPE)
+        - Path Length Ratio (PLR)
+        - Other existing measures from original code
     """
-    #init dictionary
-    kinData = dict()
     
-    feedbackOn = int(thisData.T[15][0])
+    kinData = initialize_kinData(thisData)
     xTargetPos = thisData.T[1]
     yTargetPos = thisData.T[2] #constant y postion of the target
-    
+    feedbackOn = int(thisData.T[15][0])
     kinData['feedbackOn'] = feedbackOn;
-    
-    # Get non-filtered and filtered hand positions and velocities
-    HandX = thisData.T[4]   #X position of hand
-    HandY = thisData.T[5]  #Y position of hand
-    velX = thisData.T[6]  #X velocity
-    velY = thisData.T[7]   #Y velocity
-    
-    #filtered data, speed and acceleration
-    HandX_filt = lowPassFilter(HandX,defaults['fc'],defaults['fs'])
-    HandY_filt = lowPassFilter(HandY,defaults['fc'],defaults['fs'])
-    velX_filt = lowPassFilter(velX,defaults['fc'],defaults['fs'])
-    velY_filt = lowPassFilter(velY,defaults['fc'],defaults['fs'])
-    
+
+    HandX, HandY, velX, velY = get_hand_positions_and_velocities(thisData)
+    HandX_filt, HandY_filt, velX_filt, velY_filt = filter_hand_data(HandX, HandY, velX, velY, defaults)
     handspeed = np.sqrt(velX_filt**2 + velY_filt**2);
     
     kinData['initVel'] = handspeed[0];
+    CursorX, CursorY = compute_cursor_positions(HandX, HandY, velX, velY, defaults)
     
-    # Cursor position Cursor position is based on hand position + velocity *feedforward estimate (velocity-dependent!)
-    CursorX = HandX + defaults['fdfwd'] * velX
-    CursorY = HandY + defaults['fdfwd'] * velY
-
-    #find peaks
+    #Determine the peak movements in the trial
+    
     [peaks,props] = signal.find_peaks(handspeed,height=max(handspeed)/4,distance=150)
     kinData['peaks'] = peaks
     kinData['props'] = props
+    kinData = process_velocity_peaks(kinData, handspeed, peaks, props)
+    peaks, props, kinData = check_first_peak(peaks, props, kinData)
+    kinData = find_reaction_time(peaks, props, handspeed, kinData)
+    kinData = check_rt_contingencies(kinData, feedbackOn, CursorY, yTargetPos)
+    kinData = calculate_alternative_rt(kinData, handspeed)
+    kinData = calculate_movement_time(kinData, feedbackOn, CursorY, yTargetPos)
+    #more contingencies for RT: connect be <100 or greater than when feedback comes on
+    #also the Y pos at RT cannot exceed the Y position of the target
+    kinData = calculate_initial_angles(kinData, HandX_filt, HandY_filt) 
+    plot_vectors(HandX_filt, HandY_filt, kinData, xTargetPos, yTargetPos)
+    #minimum distance between target and cursor (from onset to feedback)
+    kinData['minDist'] = np.min(dist(CursorX[0:feedbackOn+10],CursorY[0:feedbackOn+10],xTargetPos[0:feedbackOn+10],yTargetPos[0:feedbackOn+10]))
 
-    if len(props['peak_heights'])>1 and peaks[0] < 100: #first peak not real if before 100 ms
-        #print(props['peak_heights'],peaks)
+
+    kinData = calculate_movement_direction_error(kinData, HandX_filt, HandY_filt, thisData.T[1], thisData.T[2])
+    kinData = compute_path_length(kinData, HandX_filt, HandY_filt, CursorX, CursorY, thisData.T[1], thisData.T[2])
+    kinData = calculate_path_offset(kinData, HandX_filt, HandY_filt)
+    kinData = check_for_curve_around(kinData, CursorY, thisData.T[2])
+    return kinData
+
+def check_first_peak(peaks, props, kinData):
+    """
+    Checks if the first peak is a bad peak (before 100 ms) and removes it if necessary.
+    """
+    if len(props['peak_heights']) > 1 and peaks[0] < 100:  # First peak is not real if before 100 ms
         print('bad first peak')
-        peaks = np.delete(peaks,0)
-        props['peak_heights'] = np.delete(props['peak_heights'],0)
+        peaks = np.delete(peaks, 0)
+        props['peak_heights'] = np.delete(props['peak_heights'], 0)
         kinData['badfirstpeak'] = True
     else:
         kinData['badfirstpeak'] = False
+    return peaks, props, kinData
 
-
-    if len(peaks)>0:
-        kinData['velPeak'] = props['peak_heights'][0] #same as handspeed[peaks][0]; taking first real peak, not overall peak velocity
+def find_reaction_time(peaks, props, handspeed, kinData):
+    """
+    Finds the reaction time by moving backwards from the first peak to the onset where 
+    hand speed drops below 5% of the peak height.
+    """
+    if len(peaks) > 0:
+        kinData['velPeak'] = props['peak_heights'][0]  # Taking the first real peak, not the overall peak velocity
         kinData['velLoc'] = peaks[0]
-    
-        #move backwards from the first peak to determine RT
-        #first time handspeed went below 5%
-        findonset  = handspeed[0:peaks[0]] < props['peak_heights'][0]*.05
-        onset  = np.where(findonset==True)[0]
-        if len(onset) >0:
-            kinData['RT'] = onset[-1] +1
+
+        # Move backwards from the first peak to determine RT
+        findonset = handspeed[0:peaks[0]] < props['peak_heights'][0] * 0.05
+        onset = np.where(findonset == True)[0]
+
+        if len(onset) > 0:
+            kinData['RT'] = onset[-1] + 1
         else:
-            kinData['RT'] =np.nan
+            kinData['RT'] = np.nan
             kinData['velPeak'] = np.nan
             kinData['velLoc'] = np.nan
             kinData['RTexclusion'] = 'could not find onset'
@@ -159,29 +176,48 @@ def getHandKinematics(thisData,defaults):
         kinData['velPeak'] = np.nan
         kinData['velLoc'] = np.nan
         kinData['RTexclusion'] = 'no peaks'
-            
-    #more contingencies for RT: connect be <100 or greater than when feedback comes on
-    #also the Y pos at RT cannot exceed the Y position of the target
-    if kinData['RT'] < 100 or kinData['RT'] > feedbackOn or CursorY[0]>yTargetPos[0]:
+    
+    return kinData
+
+
+def check_rt_contingencies(kinData, feedbackOn, CursorY, yTargetPos):
+    """
+    Checks for contingencies on reaction time (RT), ensuring it is valid.
+    """
+    if kinData['RT'] < 100 or kinData['RT'] > feedbackOn or CursorY[0] > yTargetPos[0]:
         kinData['RT'] = np.nan
         kinData['velPeak'] = np.nan
         kinData['velLoc'] = np.nan
         kinData['RTexclusion'] = 'outlier value'
     else:
         kinData['RTexclusion'] = 'good RT'
-        
-    #try RT defined just as first time speed exceeded 1 cm/s (Orban de Xivry is 2 cm/s)
-    findonset  = handspeed > 100
-    onset  = np.where(findonset==True)[0]
-    if len(onset) >0:
+    
+    return kinData
+
+def calculate_alternative_rt(kinData, handspeed, threshold=100):
+    """
+    Calculates an alternative reaction time (RTalt) based on when the hand speed exceeds a threshold.
+    """
+    findonset = handspeed > threshold
+    onset = np.where(findonset == True)[0]
+    
+    if len(onset) > 0:
         kinData['RTalt'] = onset[0] + 1
     else:
-        kinData['RTalt'] =np.nan
+        kinData['RTalt'] = np.nan
     
-    #Movement time first approximation -- when did cursor center cross y position of the target?
+    return kinData
+
+
+
+def calculate_movement_time(kinData, feedbackOn, CursorY, yTargetPos):
+    """
+    Calculates the movement time (CT), the time when the cursor crosses the y-position of the target.
+    """
     if not np.isnan(kinData['RT']):
-        #5 and 10 are PLACEHOLDERS
-        findCT= np.where((CursorY+5)>(yTargetPos[0]-10))[0]
+        # Placeholder adjustment values (+5 and -10)
+        findCT = np.where((CursorY + 5) > (yTargetPos[0] - 10))[0]
+        
         if len(findCT) > 0:
             if findCT[0] > feedbackOn + 200:
                 kinData['CT'] = feedbackOn + 200
@@ -190,106 +226,244 @@ def getHandKinematics(thisData,defaults):
                 kinData['CT'] = findCT[0]
                 kinData['CTexclusion'] = 'Crossed Y pos at CT'
         else:
-            kinData['CT'] = np.nan 
+            kinData['CT'] = np.nan
             kinData['CTexclusion'] = 'Cursor center did not cross target'
     else:
         kinData['CT'] = np.nan
         kinData['CTexclusion'] = 'no RT'
-        
-    #Angle of Movement initiation at reaction time (sometimes occurs after
-    #target hit)
-    for v in ['RT','RTalt']:
-        if not np.isnan(kinData[v]) and (kinData[v]+50 < len(HandX_filt)): 
-            xdiff = HandX_filt[kinData[v]] - HandX_filt[0];
-            ydiff = HandY_filt[kinData[v]] - HandY_filt[0];    
-            kinData['IA_'+v] = np.arctan2(xdiff,ydiff) * 180/np.pi;
-            xdiff = HandX_filt[kinData[v]+50] - HandX_filt[0];
-            ydiff = HandY_filt[kinData[v]+50] - HandY_filt[0];    
-            kinData['IA_50'+v] = np.arctan2(xdiff,ydiff) * 180/np.pi;
-        else:
-            #RT does not exist or occurs too late so initial angle cannot be calculated
-            kinData['IA_'+v] = np.nan
-            kinData['IA_50'+v] = np.nan
-            
-   
-    #minimum distance between target and cursor (from onset to feedback)
-    kinData['minDist'] = np.min(dist(CursorX[0:feedbackOn+10],CursorY[0:feedbackOn+10],xTargetPos[0:feedbackOn+10],yTargetPos[0:feedbackOn+10]))
- 
     
-    if not np.isnan(kinData['CT']) and kinData['RT'] < kinData['CT']:
-        #x position error when y position crossed
-        kinData['xTargetEnd'] = xTargetPos[kinData['CT']]
-        kinData['yTargetEnd'] = yTargetPos[kinData['CT']]
-        kinData['xPosError'] = np.abs(CursorX[kinData['CT']] - xTargetPos[kinData['CT']])
-        
-        #distance from start position to target position at time y position crossed
-        kinData['targetDist'] = dist(xTargetPos[0],yTargetPos[0],xTargetPos[kinData['CT']],yTargetPos[kinData['CT']])
-        kinData['handDist'] = dist(HandX_filt[0],HandY_filt[0],xTargetPos[kinData['CT']],yTargetPos[kinData['CT']])
-        
-        #path length
-        lengths = np.sqrt(np.sum(np.diff(list(zip(HandX_filt[0:kinData['CT']],HandY_filt[0:kinData['CT']])), axis=0)**2, axis=1))
-        kinData['pathlength'] = np.sum(lengths)
-        #target path length
-        tlengths = np.sqrt(np.sum(np.diff(list(zip(xTargetPos[0:kinData['CT']],yTargetPos[0:kinData['CT']])), axis=0)**2, axis=1))
-        kinData['targetlength']  = np.sum(tlengths)
-        #straight-line path length
-        pathx = [HandX_filt[0], HandX_filt[kinData['CT']]]
-        pathy = [HandY_filt[0], HandY_filt[kinData['CT']]]       
-        x_new = np.linspace(start=pathx[0], stop=pathx[-1], num=int(kinData['CT']))        
-        y_new = np.linspace(start=pathy[0], stop=pathy[-1], num=int(kinData['CT']))
-        slength = np.sqrt(np.sum(np.diff(list(zip(x_new,y_new)), axis=0)**2, axis=1))
-        kinData['straightlength']  = np.sum(slength)
-        endofMove = np.min([kinData['CT'],feedbackOn])
-        
-        kinData['CursorX']= CursorX[0:endofMove ]
-        kinData['CursorY']= CursorY[0:endofMove ]
-        
-       # timepoints = kinData['CT'] - kinData['RT'] + 1; #i.e., MT
-       # xPath = np.linspace(HandX_filt[kinData['RT']],HandX_filt[kinData['CT']],timepoints)
-       # yPath = np.linspace(HandY_filt[kinData['RT']],HandY_filt[kinData['CT']],timepoints)
-        
-        start_end = [HandX_filt[kinData['CT']]-HandX_filt[kinData['RT']],
-                     HandY_filt[kinData['CT']]-HandY_filt[kinData['RT']]]
-        start_end_distance = np.sqrt(np.sum(np.square(start_end)))
-        start_end.append(0)
-        
-        perp_distance = []
-        for m,handpos in enumerate(HandX_filt[kinData['RT']:kinData['CT']]):
-            thispointstart = [[HandX_filt[m]-HandX_filt[kinData['RT']]],
-                              [HandY_filt[m]-HandY_filt[kinData['RT']]]]
-            thispointstart.append([0])    
-            
-            thispointstart = [HandX_filt[m]-HandX_filt[kinData['RT']],
-                              HandY_filt[m]-HandY_filt[kinData['RT']]]
-            thispointstart.append(0)               
-            
-            p = np.divide(np.sqrt(np.square(np.sum(np.cross(start_end,thispointstart)))),
-                      np.sqrt(np.sum(np.square(start_end))))
-            
-            perp_distance.append(p)
-        
-       
-        pathoffset = np.divide(perp_distance,start_end_distance)
-        if len(pathoffset) < 1:
-            assert 0
-        kinData['maxpathoffset'] = np.max(pathoffset)
-        kinData['meanpathoffset']=np.mean(pathoffset)
-        
-        
-    else:
-        kinData['xPosError'] = np.nan
-        kinData['targetDist'] = np.nan
-        kinData['handDist'] = np.nan
-        kinData['straightlength'] = np.nan
-        kinData['pathlength'] = np.nan
-        kinData['targetlength'] = np.nan
-        kinData['CursorX']= np.nan
-        kinData['CursorY']= np.nan
-        kinData['maxpathoffset'] = np.nan
-        kinData['meanpathoffset'] = np.nan
-        kinData['xTargetEnd'] = np.nan
-        kinData['yTargetEnd'] = np.nan
 
+def calculate_initial_angles(kinData, HandX_filt, HandY_filt):
+    for v in ['RT', 'RTalt']:
+        if not np.isnan(kinData[v]) and kinData[v] + 50 < len(HandX_filt):
+            xdiff = HandX_filt[int(kinData[v])] - HandX_filt[0]
+            ydiff = HandY_filt[int(kinData[v])] - HandY_filt[0]
+            kinData['IA_' + v] = np.arctan2(ydiff, xdiff) * 180 / np.pi
+            xdiff_50 = HandX_filt[int(kinData[v] + 50)] - HandX_filt[0]
+            ydiff_50 = HandY_filt[int(kinData[v] + 50)] - HandY_filt[0]
+            kinData['IA_50' + v] = np.arctan2(ydiff_50, xdiff_50) * 180 / np.pi
+        else:
+            kinData['IA_' + v] = np.nan
+            kinData['IA_50' + v] = np.nan
+    return kinData
+
+def calculate_position_and_distances(kinData, xTargetPos, yTargetPos, CursorX,HandX_filt, HandY_filt):
+    kinData['xTargetEnd'] = xTargetPos[kinData['CT']]
+    kinData['yTargetEnd'] = yTargetPos[kinData['CT']]
+    kinData['xPosError'] = np.abs(CursorX[kinData['CT']] - xTargetPos[kinData['CT']])
+    #distance from start position to target position at time y position crossed
+    kinData['targetDist'] = dist(xTargetPos[0],yTargetPos[0],xTargetPos[kinData['CT']],yTargetPos[kinData['CT']]) #Can be named as targetLength : Total distance travelled by the target
+    kinData['handDist'] = dist(HandX_filt[0],HandY_filt[0],xTargetPos[kinData['CT']],yTargetPos[kinData['CT']]) #Total distance travelled by the hand from initial position to the target
+    return kinData
+
+def calculate_path_lengths():
+    hand_path_lengths = np.sqrt(np.sum(np.diff(list(zip(HandX_filt[0:kinData['CT']],HandY_filt[0:kinData['CT']])), axis=0)**2, axis=1))
+    kinData['pathlength'] = np.sum(lengthszZ)
+
+def plot_vectors(HandX_filt, HandY_filt, kinData, xTargetPos, yTargetPos):
+    # Calculate IA and IA_50 vectors (relative to start position)
+    IA_vector = np.array([HandX_filt[int(kinData['RT'])] - HandX_filt[0], HandY_filt[int(kinData['RT'])] - HandY_filt[0]])
+    IA_50_vector = np.array([HandX_filt[int(kinData['RT']) + 50] - HandX_filt[0], HandY_filt[int(kinData['RT']) + 50] - HandY_filt[0]])
+    
+    # Ideal vector (from start to target)
+    ideal_vector = np.array([xTargetPos[0] - HandX_filt[0], yTargetPos[0] - HandY_filt[0]])
+
+    # Calculate angles with x-axis for IA, IA_50, and Ideal vectors
+    IA_angle = np.arctan2(IA_vector[1], IA_vector[0]) * 180 / np.pi
+    IA_50_angle = np.arctan2(IA_50_vector[1], IA_50_vector[0]) * 180 / np.pi
+    ideal_angle = np.arctan2(ideal_vector[1], ideal_vector[0]) * 180 / np.pi
+    
+    # Calculate Initial Movement Direction Error (IDE)
+    IDE = (IA_50_angle - ideal_angle + 180) % 360 - 180
+
+    plt.figure(figsize=(8, 8))
+    plt.quiver(0, 0, IA_vector[0], IA_vector[1], angles='xy', scale_units='xy', scale=1, color='blue', label="IA Vector (RT)")
+    plt.quiver(0, 0, IA_50_vector[0], IA_50_vector[1], angles='xy', scale_units='xy', scale=1, color='green', label="IA_50 Vector (RT+50ms)")
+    plt.quiver(0, 0, ideal_vector[0], ideal_vector[1], angles='xy', scale_units='xy', scale=1, color='red', linestyle='--', label="Ideal Vector")
+    
+    plt.xlim(-3, 8)
+    plt.ylim(-3,8)
+    plt.xlabel('X')
+    plt.ylabel('Y')
+    plt.title('IA, IA_50, and Ideal Vectors with X-axis')
+    plt.legend()
+    plt.grid(True)
+    plt.gca().set_aspect('equal', adjustable='box')
+    
+    plt.show()
+    print(f"IA Angle with X-axis: {IA_angle:.2f} degrees")
+    print(f"IA_50 Angle with X-axis: {IA_50_angle:.2f} degrees")
+    print(f"Ideal Vector Angle with X-axis: {ideal_angle:.2f} degrees")
+    print(f"Initial Movement Direction Error (IDE): {IDE:.2f} degrees")
+
+    return IA_angle, IA_50_angle, ideal_angle, IDE
+
+
+
+def calculate_movement_direction_error(kinData, HandX_filt, HandY_filt, xTargetPos, yTargetPos):
+    ideal_xdiff = xTargetPos[0] - HandX_filt[0]
+    ideal_ydiff = yTargetPos[0] - HandY_filt[0]
+    ideal_angle = np.arctan2(ideal_ydiff, ideal_xdiff) * 180 / np.pi
+
+    if not np.isnan(kinData['IA_50RT']):
+        kinData['IDE'] = kinData['IA_50RT'] - ideal_angle
+        kinData['IDE'] = (kinData['IDE'] + 180) % 360 - 180
+    else:
+        kinData['IDE'] = np.nan
+    return kinData
+
+
+def compute_path_length(kinData, HandX_filt, HandY_filt, CursorX, CursorY, xTargetPos, yTargetPos):
+    if not np.isnan(kinData['CT']) and kinData['RT'] < kinData['CT']:
+        lengths = calculate_path_lengths(HandX_filt, HandY_filt, kinData['RT'], kinData['CT'])
+        kinData['pathlength'] = np.sum(lengths)
+        kinData['straightlength'] = calculate_straight_path_length(HandX_filt, HandY_filt, kinData['RT'], kinData['CT'])
+        kinData = plot_path(kinData, HandX_filt, HandY_filt, kinData['RT'], kinData['CT'])
+        kinData['PLR'] = kinData['pathlength'] / kinData['straightlength'] if kinData['straightlength'] > 0 else np.nan
+    else:
+        kinData = fill_nan_values(kinData)
+    return kinData
+
+
+def calculate_path_lengths(HandX_filt, HandY_filt, RT, CT):
+    return np.sqrt(np.sum(np.diff(list(zip(HandX_filt[RT:], HandY_filt[RT:])), axis=0)**2, axis=1))
+
+
+def calculate_straight_path_length(HandX_filt, HandY_filt, RT, CT):
+    return np.sqrt((HandX_filt[RT] - HandX_filt[CT])**2 + (HandY_filt[RT] - HandY_filt[CT])**2)
+
+
+def plot_path(kinData, HandX_filt, HandY_filt, RT, CT):
+    plt.plot(HandX_filt[RT:], HandY_filt[RT:], color='b', label="Hand Positions")
+    plt.plot([HandX_filt[RT], HandX_filt[CT]], [HandY_filt[RT], HandY_filt[CT]], color='r', linestyle='--', label="Straight Path")
+    plt.show()
+    return kinData
+
+
+def calculate_path_offset(kinData, HandX_filt, HandY_filt):
+    movement_vector = compute_movement_vector(kinData, HandX_filt, HandY_filt)
+    perp_distances = calculate_perpendicular_distances(movement_vector, HandX_filt, HandY_filt, kinData['RT'], kinData['CT'])
+
+    kinData['maxpathoffset'] = np.max(perp_distances) if len(perp_distances) > 0 else np.nan
+    kinData['meanpathoffset'] = np.mean(perp_distances) if len(perp_distances) > 0 else np.nan
+    return kinData
+
+
+def compute_movement_vector(kinData, HandX_filt, HandY_filt):
+    start_x, start_y = HandX_filt[kinData['RT']], HandY_filt[kinData['RT']]
+    end_x, end_y = HandX_filt[kinData['CT']], HandY_filt[kinData['CT']]
+    return np.array([end_x - start_x, end_y - start_y, 0])
+
+
+def calculate_perpendicular_distances(movement_vector, HandX_filt, HandY_filt, RT, CT):
+    movement_distance = np.linalg.norm(movement_vector)
+    movement_vector_unit = movement_vector / movement_distance if movement_distance != 0 else movement_vector
+    perp_distances = []
+    for idx in range(RT, CT + 1):
+        point_vector = np.array([HandX_filt[idx] - HandX_filt[RT], HandY_filt[idx] - HandY_filt[RT], 0])
+        cross_prod = np.cross(movement_vector_unit, point_vector)
+        perp_distance = np.linalg.norm(cross_prod)
+        perp_distances.append(perp_distance)
+    return perp_distances
+
+
+def check_for_curve_around(kinData, CursorY, yTargetPos):
+    post_CT_indices = np.arange(int(kinData['CT']), len(CursorY))
+    if len(post_CT_indices) > 0:
+        post_CT_YPoints = CursorY[post_CT_indices]
+        kinData['isCurveAround'] = np.any(post_CT_YPoints < yTargetPos[0])
+    else:
+        kinData['isCurveAround'] = np.nan
+    return kinData
+
+
+def fill_nan_values(kinData):
+    keys_to_nan = ['xPosError', 'targetDist', 'handDist', 'straightlength', 'pathlength', 'targetlength',
+                   'CursorX', 'CursorY', 'maxpathoffset', 'meanpathoffset', 'xTargetEnd', 'yTargetEnd', 
+                   'EndPointError', 'PLR', 'isCurveAround', 'IDE']
+    for key in keys_to_nan:
+        kinData[key] = np.nan
+    return kinData
+
+
+    
+def calculate_reaction_time(kinData, handspeed, CursorY, yTargetPos, feedbackOn):
+    if kinData['velLoc'] is not np.nan:
+        findonset = handspeed[:kinData['velLoc']] < kinData['velPeak'] * 0.05
+        onset = np.where(findonset)[0]
+        if len(onset) > 0:
+            kinData['RT'] = onset[-1] + 1
+        else:
+            kinData['RT'] = np.nan
+        kinData = check_reaction_time_validity(kinData, CursorY, yTargetPos, feedbackOn)
+    else:
+        kinData['RT'] = np.nan
+    return kinData   
+
+
+def check_reaction_time_validity(kinData, CursorY, yTargetPos, feedbackOn):
+    if not np.isnan(kinData['RT']):
+        if kinData['RT'] < 100 or kinData['RT'] > feedbackOn or CursorY[0] > yTargetPos[0]:
+            kinData['RT'] = kinData['velPeak'] = kinData['velLoc'] = np.nan
+            kinData['RTexclusion'] = 'outlier value'
+        else:
+            kinData['RTexclusion'] = 'good RT'
+    return kinData
+
+
+
+def process_velocity_peaks(kinData, handspeed, peaks, props):
+    if len(peaks) > 0:
+        kinData['velPeak'] = props['peak_heights'][0]    #same as handspeed[peaks][0]; taking first real peak, not overall peak velocity
+        kinData['velLoc'] = peaks[0]
+        kinData = handle_bad_first_peak(kinData, handspeed, peaks, props)
+        findonset  = handspeed[0:peaks[0]] < props['peak_heights'][0]*.05
+        onset  = np.where(findonset==True)[0]
+        if len(onset) >0:
+            kinData['RT'] = onset[-1] +1
+        else:
+            kinData['RT'], kinData['velPeak'], kinData['velLoc'] = np.nan
+            kinData['RTexclusion'] = 'could not find onset'
+    else:
+        kinData['RT'] = kinData['velPeak'] = kinData['velLoc'] = np.nan
+        kinData['RTexclusion'] = 'no peaks'
+    return kinData
+
+def handle_bad_first_peak(kinData, handspeed, peaks, props):
+    if len(props['peak_heights']) > 1 and peaks[0] < 100:
+        peaks = np.delete(peaks, 0)
+        props['peak_heights'] = np.delete(props['peak_heights'], 0)
+        kinData['badfirstpeak'] = True
+    else:
+        kinData['badfirstpeak'] = False
+    return kinData
+
+def compute_cursor_positions(HandX, HandY, velX, velY, defaults):
+    CursorX = HandX + defaults['fdfwd'] * velX
+    CursorY = HandY + defaults['fdfwd'] * velY
+    return CursorX, CursorY
+
+
+def get_hand_positions_and_velocities(thisData):
+    HandX = thisData.T[4]
+    HandY = thisData.T[5]
+    velX = thisData.T[6]
+    velY = thisData.T[7]
+    return HandX, HandY, velX, velY
+
+
+def filter_hand_data(HandX, HandY, velX, velY, defaults):
+    HandX_filt = lowPassFilter(HandX, defaults['fc'], defaults['fs'])
+    HandY_filt = lowPassFilter(HandY, defaults['fc'], defaults['fs'])
+    velX_filt = lowPassFilter(velX, defaults['fc'], defaults['fs'])
+    velY_filt = lowPassFilter(velY, defaults['fc'], defaults['fs'])
+    return HandX_filt, HandY_filt, velX_filt, velY_filt
+
+
+
+def initialize_kinData(thisData):
+    kinData = dict()
+    kinData['feedbackOn'] = int(thisData.T[15][0])
     return kinData
 
 def getDataCP(mdf,matfiles,defaults):
@@ -298,14 +472,17 @@ def getDataCP(mdf,matfiles,defaults):
     
     # initialize trajectory data cell
     allTrajs = {}
-    
+    row_name_str=  "cpvib088"
     for index, row in mdf.iterrows():
-        if row['KINARM ID'].startswith('CHEAT'):
-            subject = row['KINARM ID'][-3:]     
+        if row['KINARM ID'] != (row_name_str):
+            continue;
+        elif row['KINARM ID'].startswith('CHEAT'):
+            subject = row['KINARM ID'][-3:]
         else:
-            subject = row['KINARM ID']
+          subject = row['KINARM ID']
         print(subject)
-        subjectmat = 'CHEAT-CP'+subject+row['Visit_Day']+'.mat' 
+        # subjectmat = 'CHEAT-CP'+subject+row['Visit_Day']+'.mat' 
+        subjectmat = 'CHEAT-CPcpvib088Day1.mat'
         
         mat = os.path.join(matfiles,subjectmat) #
                 
@@ -315,10 +492,12 @@ def getDataCP(mdf,matfiles,defaults):
             #    assert 0
             continue      
         
+        
         loadmat =  scipy.io.loadmat(mat)
     
         data = loadmat['subjDataMatrix'][0][0]
-        
+        # print(data.keys())
+        # assert 0
         #data[23] is all data for trial 24 
         #data[23].T[4] is all data for the 5th column of that trial
         
@@ -330,6 +509,7 @@ def getDataCP(mdf,matfiles,defaults):
         for i in range(len(data)):
             thisData = data[i]
             trajData = getHandTrajectories(thisData,defaults)
+            # print(f"Calling the Kinematics function for the sub : {subjectmat}")
             kinData = getHandKinematics(thisData,defaults)
             row_values = [thisData.T[12][0],thisData.T[16][0],thisData.T[11][0],
                           thisData.T[13][0],thisData.T[14][0],thisData.T[15][0],
@@ -337,7 +517,7 @@ def getDataCP(mdf,matfiles,defaults):
                           kinData['xPosError'],kinData['minDist'],kinData['targetDist'],kinData['handDist'],kinData['straightlength'],
                           kinData['pathlength'],kinData['targetlength'],kinData['CursorX'],kinData['CursorY'],
                           kinData['IA_RT'],kinData['IA_50RT'],kinData['RTalt'],kinData['IA_RTalt'],
-                          kinData['maxpathoffset'],kinData['meanpathoffset'],kinData['xTargetEnd'],kinData['yTargetEnd']]
+                          kinData['maxpathoffset'],kinData['meanpathoffset'],kinData['xTargetEnd'],kinData['yTargetEnd'],kinData['EndPointError'],kinData['IDE'],kinData['PLR'],kinData['isCurveAround']]
                         
             allTrials.append(row_values)
             subjectTrajs.append(trajData)
@@ -345,7 +525,7 @@ def getDataCP(mdf,matfiles,defaults):
         df = pd.DataFrame(allTrials, columns=['Condition', 'Affected','TP', 'Duration','Accuracy','FeedbackTime',
                                               'RT','CT','velPeak','xPosError','minDist','targetDist','handDist','straightlength',
                                               'pathlength','targetlength','cursorX','cursorY','IA_RT','IA_50RT',
-                                              'RTalt','IA_RTalt','maxpathoffset','meanpathoffset','xTargetEnd','yTargetEnd'])
+                                              'RTalt','IA_RTalt','maxpathoffset','meanpathoffset','xTargetEnd','yTargetEnd', 'EndPointError', 'IDE', 'PLR', 'isCurveAround'])
         #data cleaning
         df['Affected'] = df['Affected'].map({1:'More Affected',0:'Less Affected'})
         df['Condition'] = df['Condition'].map({1:'Reaching',2:'Interception'})

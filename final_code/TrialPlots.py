@@ -168,7 +168,7 @@ def plot_trial_IDE(kinData, HandX_filt, HandY_filt, xTargetPos, yTargetPos, thet
     accuracy_value = kinData['Accuracy']
     end_point_error = kinData['EndPointError']
     path_length_ratio = kinData['PLR']
-    condition = kinData['Target_Type']
+    condition = kinData['Condtion']
     
     # Create folder for subject if it doesn't exist
     subject_folder = os.path.join(r'C:\Users\LibraryUser\Downloads\Fall2024\BrainAndAction\CP\CP\results\plots_v2', subject)
@@ -246,7 +246,8 @@ def plot_trial_IDE(kinData, HandX_filt, HandY_filt, xTargetPos, yTargetPos, thet
     
     plot_filename = f'{subject}_{i}_{str(uuid.uuid4())}.png'
     plt.savefig(os.path.join(subject_folder, plot_filename), bbox_inches='tight')
-    plt.close()
+    # plt.close()
+    plt.show()
 
 
 

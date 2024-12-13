@@ -154,8 +154,7 @@ def getHandKinematics(thisData, defaults, i, subject):
                                 xTargetPos[0:feedbackOn+10], yTargetPos[0:feedbackOn+10]))
 
     if not np.isnan(kinData['CT']) and kinData['RT'] < kinData['CT']:
-        if(i > 90 and subject == 'cpvib40'):
-            print("I'm here")
+        
         kinData['EndPointError'] = dist(CursorX[int(kinData['CT'])], CursorY[int(kinData['CT'])],
                                         xTargetPos[int(kinData['CT'])], yTargetPos[int(kinData['CT'])])
         kinData = calculate_position_and_distances(
@@ -255,6 +254,7 @@ def calculate_initial_movement_direction_error(kinData, HandX_filt, HandY_filt, 
     theta_rad = np.arctan2(determinant, dot_product)
     theta_deg = np.degrees(theta_rad)
     kinData['IDE'] = theta_deg if not np.isnan(theta_deg) else np.nan
+    print(f'Value of kinData is : {kinData['IDE']}')
     # plots.plot_trial_IDE(kinData, HandX_filt, HandY_filt, xTargetPos, yTargetPos, theta_deg, i,subject,CursorX, CursorY, velX_filt, velY_filt)
 
     return kinData
@@ -559,11 +559,12 @@ def getDataCP(mdf, matfiles, defaults):
 
     # initialize trajectory data cell
     allTrajs = {}
-    row_name_str=  ["cpvib040"]
+    # row_name_str=  ["cpvib040"]
     for index, row in mdf.iterrows():
-        if row['KINARM ID'] not in row_name_str:
-            continue
-        elif row['KINARM ID'].startswith('CHEAT'):
+        # if row['KINARM ID'] not in row_name_str:
+        #     continue
+        # el
+        if row['KINARM ID'].startswith('CHEAT'):
             subject = row['KINARM ID'][-3:]
         else:
             subject = row['KINARM ID']

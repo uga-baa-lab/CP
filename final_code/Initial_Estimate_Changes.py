@@ -19,6 +19,7 @@ import os
 import TrialPlots as plots
 
 
+consider_window_for_intial_plan = False
 
 def define_defaults():
     defaults = dict()
@@ -169,8 +170,9 @@ def getHandKinematics(thisData, defaults, i, subject):
         kinData = check_for_curve_around(kinData, CursorY, yTargetPos)
         kinData['PLR'] = (kinData['pathlength']/kinData['idealPathLength']
                             if kinData['idealPathLength'] != 0 else np.nan)
-        calculate_initial_movement_direction_error(kinData, HandX_filt, HandY_filt, xTargetPos, yTargetPos, i,subject,CursorX, CursorY, velX_filt, velY_filt)
-
+        kinData = calculate_initial_movement_direction_error(kinData, HandX_filt, HandY_filt, xTargetPos, yTargetPos, i,subject,CursorX, CursorY, velX_filt, velY_filt)
+        kinData = calculate_x_intersect(
+            kinData, HandX_filt, HandY_filt, xTargetPos, yTargetPos)
         kinData['isAbnormal'] = abs(kinData['IDE']) > abs(90)
         
         #Ideal Path Length is the St. line distance between Hand(0,0) and Hand at CT.
@@ -221,6 +223,68 @@ def getHandKinematics(thisData, defaults, i, subject):
 #     return kinData
 
 
+# def calculate_initial_movement_direction_error(kinData, HandX_filt, HandY_filt, xTargetPos, yTargetPos,i,subject,CursorX, CursorY, velX_filt, velY_filt):
+#     """
+#     Calculate Initial Movement Direction Error (IDE).
+
+#     Parameters:
+#     - kinData: Dictionary containing trial information, including 'RT'.
+#     - HandX_filt: Numpy array of filtered hand X positions.
+#     - HandY_filt: Numpy array of filtered hand Y positions.
+#     - xTargetPos: Numpy array of target X positions.
+#     - yTargetPos: Numpy array of target Y positions.
+
+#     Returns:
+#     - kinData: Updated dictionary with 'IDE' value.
+#     """
+#     if np.isnan(kinData['RT']):
+#         kinData['IDE'] = np.nan
+#         return kinData
+#     reaction_time = int(kinData['RT'])
+#     reaction_time_50 = int(kinData['RT'] + 50)
+#     idx_RT = reaction_time_50
+#     delta_x = HandX_filt[reaction_time_50] - HandX_filt[reaction_time]
+#     delta_y = HandY_filt[reaction_time_50] - HandY_filt[reaction_time]
+
+#     if delta_x == 0:
+#         slope = np.inf
+#     else:
+#         slope = delta_y / delta_x
+#     y_target_plane = yTargetPos[reaction_time_50]
+#     if np.isfinite(slope):
+#         # x_intersect = HandX_filt[reaction_time] + (y_target_plane - HandY_filt[idx_RT]) / slope
+#         x_intersect = HandX_filt[reaction_time] + (y_target_plane - HandY_filt[reaction_time]) * (delta_x / delta_y)
+
+#     else:
+#         x_intersect = HandX_filt[reaction_time]
+
+#     kinData['x_intersect'] = x_intersect
+#     kinData['x_target_at_RT'] = xTargetPos[reaction_time]
+
+
+
+#     max_length = min(len(HandX_filt), len(xTargetPos))
+#     if reaction_time_50 >= max_length:
+#         reaction_time_50 = max_length - 1
+#     start_x = HandX_filt[0]
+#     start_y = HandY_filt[0]
+#     target_x = xTargetPos[reaction_time_50]
+#     target_y = yTargetPos[reaction_time_50]
+#     ideal_vector = np.array([target_x - start_x, target_y - start_y])
+#     actual_vector = np.array([HandX_filt[reaction_time_50] - start_x, HandY_filt[reaction_time_50] - start_y])
+#     if target_x < 0:
+#         ideal_vector = np.array([-ideal_vector[0], ideal_vector[1]])
+#         actual_vector = np.array([-actual_vector[0], actual_vector[1]])
+
+#     determinant = actual_vector[0] * ideal_vector[1] - actual_vector[1] * ideal_vector[0]
+#     dot_product = actual_vector[0] * ideal_vector[0] + actual_vector[1] * ideal_vector[1]
+#     theta_rad = np.arctan2(determinant, dot_product)
+#     theta_deg = np.degrees(theta_rad)
+#     kinData['IDE'] = theta_deg if not np.isnan(theta_deg) else np.nan
+#     plots.plot_trial_IDE(kinData, HandX_filt, HandY_filt, xTargetPos, yTargetPos, theta_deg, i,subject,CursorX, CursorY, velX_filt, velY_filt)
+
+#     return kinData
+
 def calculate_initial_movement_direction_error(kinData, HandX_filt, HandY_filt, xTargetPos, yTargetPos,i,subject,CursorX, CursorY, velX_filt, velY_filt):
     """
     Calculate Initial Movement Direction Error (IDE).
@@ -237,30 +301,10 @@ def calculate_initial_movement_direction_error(kinData, HandX_filt, HandY_filt, 
     """
     if np.isnan(kinData['RT']):
         kinData['IDE'] = np.nan
+        kinData['ABS_IDE'] = np.nan
         return kinData
-    reaction_time = int(kinData['RT'])
+
     reaction_time_50 = int(kinData['RT'] + 50)
-    idx_RT = reaction_time_50
-    delta_x = HandX_filt[reaction_time_50] - HandX_filt[reaction_time]
-    delta_y = HandY_filt[reaction_time_50] - HandY_filt[reaction_time]
-
-    if delta_x == 0:
-        slope = np.inf
-    else:
-        slope = delta_y / delta_x
-    y_target_plane = yTargetPos[reaction_time_50]
-    if np.isfinite(slope):
-        # x_intersect = HandX_filt[reaction_time] + (y_target_plane - HandY_filt[idx_RT]) / slope
-        x_intersect = HandX_filt[reaction_time] + (y_target_plane - HandY_filt[reaction_time]) * (delta_x / delta_y)
-
-    else:
-        x_intersect = HandX_filt[reaction_time]
-
-    kinData['x_intersect'] = x_intersect
-    kinData['x_target_at_RT'] = xTargetPos[reaction_time]
-
-
-
     max_length = min(len(HandX_filt), len(xTargetPos))
     if reaction_time_50 >= max_length:
         reaction_time_50 = max_length - 1
@@ -273,16 +317,265 @@ def calculate_initial_movement_direction_error(kinData, HandX_filt, HandY_filt, 
     if target_x < 0:
         ideal_vector = np.array([-ideal_vector[0], ideal_vector[1]])
         actual_vector = np.array([-actual_vector[0], actual_vector[1]])
-
+    
     determinant = actual_vector[0] * ideal_vector[1] - actual_vector[1] * ideal_vector[0]
     dot_product = actual_vector[0] * ideal_vector[0] + actual_vector[1] * ideal_vector[1]
     theta_rad = np.arctan2(determinant, dot_product)
     theta_deg = np.degrees(theta_rad)
     kinData['IDE'] = theta_deg if not np.isnan(theta_deg) else np.nan
+    kinData['ABS_IDE'] = np.abs(theta_deg) if not np.isnan(theta_deg) else np.nan
+    # print(f'Initial Direction Error Value : {kinData['IDE']}')
     # plots.plot_trial_IDE(kinData, HandX_filt, HandY_filt, xTargetPos, yTargetPos, theta_deg, i,subject,CursorX, CursorY, velX_filt, velY_filt)
 
     return kinData
 
+def calculate_x_intersect(kinData, HandX_filt, HandY_filt, xTargetPos, yTargetPos):
+    if np.isnan(kinData['RT']):
+        kinData['x_intersect'] = np.nan
+        kinData['x_target_at_RT'] = np.nan
+        return kinData
+
+    RT = int(kinData['RT'])
+    x0 = HandX_filt[RT]
+    y0 = HandY_filt[RT]
+    x_target_at_RT = xTargetPos[RT]
+    y_target_at_RT = yTargetPos[RT]
+    initial_distance = np.sqrt((x_target_at_RT - x0)**2 + (y_target_at_RT - y0)**2)
+    # Initialize variables for dynamic time window
+    delta_t = 50  # Start with 50 ms
+    max_delta_t = 100 if consider_window_for_intial_plan else 50 # Maximum window size
+    # print(f'Max_Delta size is : {max_delta_t}')
+    movement_threshold = 1  # expecting Minimum displacement in mm
+    found_valid_movement = False
+    x_intersect = np.nan
+    while delta_t <= max_delta_t:
+        RT_plus_delta = RT + delta_t
+        if RT_plus_delta >= len(HandX_filt):
+            RT_plus_delta = len(HandX_filt) - 1 #making sure we're not having RT+delta value beyond the hand movement points
+        x1 = HandX_filt[RT_plus_delta]
+        y1 = HandY_filt[RT_plus_delta]
+        vx = x1 - x0  
+        vy = y1 - y0
+        displacement = np.sqrt(vx**2 + vy**2)
+        if displacement >= movement_threshold and vx != 0:
+            # Compute slope (m) and intercept (c)
+            m = vy / vx
+            c = y0 - m * x0
+            # Calculate x_intersect
+            x_intersect_computed = (y_target_at_RT - c) / m
+            new_distance = np.sqrt((x_intersect_computed - x_target_at_RT)**2 + (y_target_at_RT - (m * x_intersect_computed + c))**2)
+            # print(f'New Distance evaluated between target and the x_intersect at RT+ {delta_t} is {new_distance}')
+            if np.isnan(x_intersect) or new_distance < initial_distance:
+                x_intersect = x_intersect_computed
+                found_valid_movement = True
+                delta_t_used = delta_t
+                initial_distance = new_distance
+            # break let's iterate till RT+100
+        if not consider_window_for_intial_plan:
+            break   
+        delta_t += 10
+    if not found_valid_movement:
+        x_intersect = np.nan
+        delta_t_used = np.nan
+
+    kinData['x_intersect'] = x_intersect
+    kinData['x_target_at_RT'] = x_target_at_RT
+    kinData['Delta_T_Used'] = delta_t_used
+    return kinData
+
+# def calculate_initial_movement_direction_error(
+#     kinData,
+#     HandX_filt,
+#     HandY_filt,
+#     xTargetPos,
+#     yTargetPos,
+#     i,
+#     subject,
+#     CursorX,
+#     CursorY,
+#     velX_filt,
+#     velY_filt,
+#     defaults  # Pass the defaults to access sampling frequency
+# ):
+#     # Check if RT is NaN
+#     if np.isnan(kinData['RT']):
+#         kinData['IDE'] = np.nan
+#         kinData['x_intersect'] = np.nan
+#         kinData['x_target_at_RT'] = np.nan
+#         return kinData
+#     # print(1/0)
+#     # Reaction time index
+#     RT = int(kinData['RT'])
+
+#     # Get hand position and velocity at RT
+#     x_rt = HandX_filt[RT]
+#     y_rt = HandY_filt[RT]
+#     v_x_rt = velX_filt[RT]
+#     v_y_rt = velY_filt[RT]
+
+#     # Get target y position at RT
+#     y_target_at_RT = yTargetPos[RT]
+
+#     # Store x_target_at_RT for regression
+#     kinData['x_target_at_RT'] = xTargetPos[RT]
+
+#     # Compute t_intersect
+#     if v_y_rt != 0:
+#         t_intersect = (y_target_at_RT - y_rt) / v_y_rt
+
+#         # Calculate x_intersect
+#         x_intersect = x_rt + v_x_rt * t_intersect
+
+#         kinData['x_intersect'] = x_intersect
+#     else:
+#         # If v_y_rt is zero, cannot compute intersection
+#         kinData['x_intersect'] = np.nan
+
+#     # Now, compute IDE (Initial Direction Error)
+
+#     # The ideal movement vector is from start position to target position at RT
+#     start_x = HandX_filt[0]
+#     start_y = HandY_filt[0]
+#     target_x = xTargetPos[RT]
+#     target_y = yTargetPos[RT]
+#     ideal_vector = np.array([target_x - start_x, target_y - start_y])
+
+#     # The actual movement vector is from start position to hand position at RT + 50 ms
+#     RT_50 = RT + int(50 / (1000 / defaults['fs']))  # Convert 50 ms to samples
+
+#     if RT_50 >= len(HandX_filt):
+#         RT_50 = len(HandX_filt) - 1
+
+#     actual_vector = np.array([HandX_filt[RT_50] - start_x, HandY_filt[RT_50] - start_y])
+
+#     # Calculate angle between vectors
+#     determinant = actual_vector[0] * ideal_vector[1] - actual_vector[1] * ideal_vector[0]
+#     dot_product = actual_vector[0] * ideal_vector[0] + actual_vector[1] * ideal_vector[1]
+#     theta_rad = np.arctan2(determinant, dot_product)
+#     theta_deg = np.degrees(theta_rad)
+
+#     kinData['IDE'] = theta_deg if not np.isnan(theta_deg) else np.nan
+
+#     return kinData
+
+# def calculate_initial_movement_direction_error(
+#     kinData,
+#     HandX_filt,
+#     HandY_filt,
+#     xTargetPos,
+#     yTargetPos,
+#     i,
+#     subject,
+#     CursorX,
+#     CursorY,
+#     velX_filt,
+#     velY_filt,
+#     window_size=10  # Define the window size around RT+50
+# ):
+#        # Check if RT is NaN
+#     if np.isnan(kinData['RT']):
+#         kinData['IDE'] = np.nan
+#         kinData['x_intersect'] = np.nan
+#         kinData['x_target_at_RT'] = np.nan
+#         return kinData
+
+#     # Define the primary reaction time index
+#     reaction_time = int(kinData['RT'])
+#     reaction_time_50 = int(kinData['RT'] + 50)
+
+#     # Define the window around RT+50
+#     window_start = reaction_time_50 - window_size
+#     window_end = reaction_time_50 + window_size
+
+#     # Ensure window boundaries are within data limits
+#     max_length = min(len(HandX_filt), len(xTargetPos))
+#     window_start = max(reaction_time, window_start)
+#     window_end = min(window_end, max_length - 1)
+
+#     # Initialize lists to store x_intersect candidates
+#     x_intersect_candidates = []
+#     valid_indices = []
+
+#     for t in range(window_start, window_end + 1):
+#         # Calculate deltas
+#         delta_x = HandX_filt[t] - HandX_filt[reaction_time]
+#         delta_y = HandY_filt[t] - HandY_filt[reaction_time]
+
+#         # Avoid division by zero
+#         if delta_x == 0:
+#             slope = np.inf
+#         else:
+#             slope = delta_y / delta_x
+
+#         # Get the target Y position at current time point
+#         y_target_plane = yTargetPos[t]
+
+#         # Calculate x_intersect based on slope
+#         if np.isfinite(slope) and slope != 0:
+#             # Compute x_intersect where the movement line intersects y_target_plane
+#             x_intersect = HandX_filt[reaction_time] + (y_target_plane - HandY_filt[t]) / slope
+#         else:
+#             # If slope is infinite or zero, set x_intersect to HandX at reaction time
+#             x_intersect = HandX_filt[reaction_time]
+
+#         x_intersect_candidates.append(x_intersect)
+#         valid_indices.append(t)
+
+#     # Select the most meaningful x_intersect from candidates
+#     if x_intersect_candidates:
+#         # Criteria for selection:
+#         # Here, we choose the median x_intersect to reduce the influence of any remaining outliers
+#         selected_x_intersect = np.median(x_intersect_candidates)
+        
+#         # Optionally, you can choose the x_intersect corresponding to the median time point
+#         # median_index = valid_indices[np.argsort(x_intersect_candidates)[len(x_intersect_candidates) // 2]]
+#         # selected_x_intersect = x_intersect_candidates[len(x_intersect_candidates) // 2]
+
+#         # Assign selected x_intersect
+#         kinData['x_intersect'] = selected_x_intersect
+
+#         # Assign x_target_at_RT using the selected time point
+#         # Find the closest time index to the window's center
+#         center_time = reaction_time_50
+#         closest_time = min(valid_indices, key=lambda x: abs(x - center_time))
+#         kinData['x_target_at_RT'] = xTargetPos[closest_time]
+#     else:
+#         # If no valid x_intersect found within the window, assign NaN
+#         kinData['x_intersect'] = np.nan
+#         kinData['x_target_at_RT'] = np.nan
+
+#     # After selecting x_intersect, calculate IDE
+
+#     # Define start and target positions
+#     start_x = HandX_filt[0]
+#     start_y = HandY_filt[0]
+
+#     if not np.isnan(kinData['x_intersect']) and not np.isnan(kinData['x_target_at_RT']):
+#         target_x = kinData['x_intersect']
+#         target_y = yTargetPos[closest_time]
+
+#         # Compute ideal and actual movement vectors
+#         ideal_vector = np.array([target_x - start_x, target_y - start_y])
+#         actual_vector = np.array([HandX_filt[closest_time] - start_x, HandY_filt[closest_time] - start_y])
+
+#         # Adjust for target direction if necessary
+#         if target_x < 0:
+#             ideal_vector = np.array([-ideal_vector[0], ideal_vector[1]])
+#             actual_vector = np.array([-actual_vector[0], actual_vector[1]])
+
+#         # Calculate angle between vectors using arctan2 of determinant and dot product
+#         determinant = actual_vector[0] * ideal_vector[1] - actual_vector[1] * ideal_vector[0]
+#         dot_product = actual_vector[0] * ideal_vector[0] + actual_vector[1] * ideal_vector[1]
+#         theta_rad = np.arctan2(determinant, dot_product)
+#         theta_deg = np.degrees(theta_rad)
+
+#         kinData['IDE'] = theta_deg if not np.isnan(theta_deg) else np.nan
+#     else:
+#         kinData['IDE'] = np.nan
+
+#     return kinData
+
+from sklearn.linear_model import LinearRegression
 def perform_subject_level_regression(subject_trials):
     """
     Performs linear regression for each subject and arm using Reaching trials.
@@ -311,19 +604,63 @@ def perform_subject_level_regression(subject_trials):
         x_intersects = np.array(data['x_intersect'])
         x_targets = np.array(data['x_target'])
 
+        mean = np.mean(x_intersects)
+        std_dev = np.std(x_intersects)
+        threshold = 3 * std_dev
+        lower_bound = mean - threshold
+        upper_bound = mean + threshold
+
         # Filter out NaN values
-        valid_indices = ~np.isnan(x_intersects) & ~np.isnan(x_targets)
-        x_intersects = x_intersects[valid_indices]
-        x_targets = x_targets[valid_indices]
+        non_outlier_indices = (x_intersects >= lower_bound) & (x_intersects <= upper_bound)
+        x_intersects_filtered = x_intersects[non_outlier_indices]
+        x_targets_filtered = x_targets[non_outlier_indices]
 
-        # Perform linear regression
-        coeffs = np.polyfit(x_intersects, x_targets, 1)
-        a = coeffs[0]
-        b = coeffs[1]
-        regression_coeffs[arm] = {'a': a, 'b': b}
-   
-    return regression_coeffs,data_by_arm
+        # Check for minimum data points
+        X = x_intersects_filtered.reshape(-1, 1)
+        y = x_targets_filtered
+        model = LinearRegression()
+        model.fit_predict(X, y)
+        a = model.coef_[0]
+        b = model.intercept_
+        regression_coeffs[arm] = {'a': a, 'b': b, 'model': model}
+    return regression_coeffs, data_by_arm
+'''
+# import matplotlib.pyplot as plt
+# from sklearn import datasets, linear_model
+# from sklearn.metrics import mean_squared_error, r2_score
 
+# def plot_regression_for_subject_arm(data_by_subject_arm, regression_models):
+#     for arm, data in data_by_subject_arm.items():
+#         x = data['x_intersect']
+#         y = data['x_target']
+#         x_clean, y_clean = remove_outliers_iqr(x, y)
+#         if len(x_clean) >= 2:
+#             X = np.array(x_clean).reshape(-1, 1)
+#             y = np.array(y_clean)
+#             model = regression_models[arm]['model']
+#             # Plotting
+#             plt.figure(figsize=(8, 6))
+#             plt.scatter(X, y, color='blue', label='Data Points')
+#             x_fit = np.linspace(X.min(), X.max(), 100).reshape(-1, 1)
+#             y_fit = model.predict(x_fit)
+#             plt.plot(x_fit, y_fit, color='red', label='Regression Line')
+#             # Calculate R^2
+#             r_squared = model.score(X, y)
+#             # Display equation and R^2
+#             a = model.coef_[0]
+#             b = model.intercept_
+#             equation_text = f'y = {a:.2f}x + {b:.2f}\n$R^2$ = {r_squared:.2f}'
+#             plt.text(0.05, 0.95, equation_text, transform=plt.gca().transAxes,
+#                      fontsize=12, verticalalignment='top')
+#             plt.xlabel('x_intersect')
+#             plt.ylabel('x_target_at_RT')
+#             plt.title(f' Arm: {arm} - Reaching Trials')
+#             plt.legend()
+#             plt.grid(True)
+#             plt.show()
+#         else:
+#             print(f"Not enough data to plot for subject {subject}, arm {arm}.")
+'''
 def calculate_ie_for_interception_trials(subject_trials, regression_coeffs,subject):
     """
     Applies the regression model to Interception trials to compute IE.
@@ -701,12 +1038,14 @@ def reset_kinematic_data(kinData):
         'yTargetEnd': np.nan,
         'EndPointError': np.nan,
         'IDE': np.nan,
+        'ABS_IDE':np.nan,
         'PLR': np.nan,
         'PLR_2': np.nan,
         'isCurveAround': np.nan,
         'idealPathlength': np.nan,
         'x_intersect' : np.nan,
-        'x_target_at_RT' : np.nan
+        'x_target_at_RT' : np.nan,
+        'Delta_T_Used' : np.nan
     })
     return kinData
 
