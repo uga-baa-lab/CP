@@ -42,21 +42,42 @@ This project analyzes kinematic data from reaching and interception trials in pa
 - Seaborn
 - scikit-learn
 
-## Installation
+## Getting Started
 
-1. Clone the repository
+### Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/Brain-Action-Lab/CHEATCP-Kinematic-Analysis.git
+cd CHEATCP-Kinematic-Analysis
+```
+
 2. Install required packages:
+```bash
+pip install -r requirements.txt
+```
 
-## Usage
+### Usage
 
-1. Configure paths in `Config.py`
+1. Configure paths in `Config.py`:
+```python
+BASE_DIR = '/path/to/your/project'
+DATA_DIR = os.path.join(BASE_DIR, 'data')
+RESULTS_DIR = os.path.join(BASE_DIR, 'results')
+```
+
 2. Run the main analysis:
+```bash
+python CP_Main_Final.py
+```
 
 ## Data Requirements
 
 The program expects:
 - KINARM trial data in .mat format
 - Master data file in Excel format containing subject information
+
+Sample data structure is provided in `data/sample/` directory.
 
 ## Output
 
@@ -68,8 +89,42 @@ The analysis generates:
 
 ## Contributing
 
-Contributions to improve the analysis pipeline are welcome. Please submit pull requests with any enhancements.
+We welcome contributions! Here's how you can help:
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/new-measurement`)
+3. Commit your changes (`git commit -m 'Add some measurement'`)
+4. Push to the branch (`git push origin feature/new-measurement`)
+5. Open a Pull Request
+
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Citation
+
+If you use this code in your research, please cite:
+
+```bibtex
+@software{CHEATCP_Kinematic_Analysis,
+  author = {Barany, Deborah and Brain Action Lab},
+  title = {CHEATCP Kinematic Analysis},
+  year = {2024},
+  publisher = {GitHub},
+  url = {https://github.com/Brain-Action-Lab/CHEATCP-Kinematic-Analysis}
+}
+```
+
+## Contact
+
+For questions or feedback, please contact:
+- Deborah Barany, Brain and Action Lab, University of Georgia
+- dbarany@uga.edu
+
+## Acknowledgments
+
+- Brain and Action Lab members for their contributions
+- University of Georgia for supporting this research
+
