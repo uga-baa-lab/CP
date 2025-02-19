@@ -1,0 +1,14 @@
+# Ignore all files
+*
+
+# Allow .txt and .py files
+!*.txt
+!*.py
+# !*.xlsx
+!*.md
+!.gitignore
+# Ignore specific directories
+results_macos/
+path_to_results/
+data/
+__pycache__/ 
