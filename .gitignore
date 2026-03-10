@@ -1,5 +1,12 @@
 # Ignore all files
-*
+# *
+
+__pycache__/
+# Allow directories to be traversed
+!cp_analysis/
+!cp_analysis/**/
+!working_version_2024/
+!working_version_2024/**/
 
 # Allow .txt and .py files
 !*.txt
