@@ -335,3 +335,6 @@ IE quantifies **predictive motor planning** in interception trials.
 Brain and Action Lab, University of Georgia
 
 For questions: dbarany@uga.edu
+  
+
+  
